@@ -8,23 +8,39 @@ import java.util.*;
 
 public class Servidor {
     private static Map<Integer, String> tablaServicios = new HashMap<>();
-    private static byte[] kAB1; // Clave para AES
-    private static byte[] kAB2; // Clave para HMAC
-    private static PrivateKey privateKey; // Llave privada RSA
+    private static byte[] AES; // Clave para AES
+    private static byte[] HMAC; // Clave para HMAC
+
+
+    private static PrivateKey privateKey; // Llave privada RSA generada en archivo
 
     public static void main(String[] args) throws Exception {
+
+        
         // Cargar la llave privada
         privateKey = cargarLlavePrivada("Keys/PrivateKey.secret");
+
+
+        // se almacena tabla de servicios =>  (ID, IP)
 
         tablaServicios.put(1, "192.168.1.1:9001");
         tablaServicios.put(2, "192.168.1.2:9002");
 
-        ServerSocket serverSocket = new ServerSocket(8080);
-        System.out.println("Servidor iniciado en puerto 8080...");
-        while (true) {
-            Socket clientSocket = serverSocket.accept();
-            System.out.println("Cliente conectado: " + clientSocket.getInetAddress());
-            new Thread(() -> manejarCliente(clientSocket)).start();
+        try (ServerSocket serverSocket = new ServerSocket(8080)) {
+
+            // se crea el socket del servidor donde se pone en escucha 
+            System.out.println("Servidor iniciado en puerto 8080...");
+
+            // mientras sea verdad que este montado el socket
+            while (true) {
+
+                // aceptar comunicaciones para un cliente => se menciona al cliente conectado 
+                Socket clientSocket = serverSocket.accept();
+                System.out.println("Cliente conectado: " + clientSocket.getInetAddress());
+                new Thread(() -> manejarCliente(clientSocket)).start();
+            }
+        }catch(Exception e){
+            System.out.println("Fallo en iniciar el servidor"+ e.getLocalizedMessage());
         }
     }
 
@@ -71,8 +87,8 @@ public class Servidor {
 
             MessageDigest sha512 = MessageDigest.getInstance("SHA-512");
             byte[] digest = sha512.digest(sharedSecret);
-            kAB1 = Arrays.copyOfRange(digest, 0, 32);
-            kAB2 = Arrays.copyOfRange(digest, 32, 64);
+            AES = Arrays.copyOfRange(digest, 0, 32);
+            HMAC = Arrays.copyOfRange(digest, 32, 64);
 
             // Serializar la tabla de servicios
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -98,12 +114,12 @@ public class Servidor {
             random.nextBytes(ivBytes);
             IvParameterSpec iv = new IvParameterSpec(ivBytes);
             Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            SecretKeySpec key = new SecretKeySpec(kAB1, "AES");
+            SecretKeySpec key = new SecretKeySpec(AES, "AES");
             cipher.init(Cipher.ENCRYPT_MODE, key, iv);
             byte[] encryptedTabla = cipher.doFinal(tablaBytes);
 
             Mac mac = Mac.getInstance("HmacSHA256");
-            SecretKeySpec macKey = new SecretKeySpec(kAB2, "HmacSHA256");
+            SecretKeySpec macKey = new SecretKeySpec(HMAC, "HmacSHA256");
             mac.init(macKey);
             byte[] hmacTabla = mac.doFinal(encryptedTabla);
 
