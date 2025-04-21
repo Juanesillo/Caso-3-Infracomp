@@ -10,8 +10,12 @@ public class Servidor {
     private static Map<Integer, String> tablaServicios = new HashMap<>();
     private static byte[] kAB1; // Clave para AES
     private static byte[] kAB2; // Clave para HMAC
+    private static PrivateKey privateKey; // Llave privada RSA
 
     public static void main(String[] args) throws Exception {
+        // Cargar la llave privada
+        privateKey = cargarLlavePrivada("Keys/PrivateKey.secret");
+
         tablaServicios.put(1, "192.168.1.1:9001");
         tablaServicios.put(2, "192.168.1.2:9002");
 
@@ -70,18 +74,31 @@ public class Servidor {
             kAB1 = Arrays.copyOfRange(digest, 0, 32);
             kAB2 = Arrays.copyOfRange(digest, 32, 64);
 
-            // Enviar tabla de servicios
+            // Serializar la tabla de servicios
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             ObjectOutputStream oos = new ObjectOutputStream(baos);
             oos.writeObject(tablaServicios);
             byte[] tablaBytes = baos.toByteArray();
 
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            SecretKeySpec key = new SecretKeySpec(kAB1, "AES");
+            // Firmar la tabla con RSA
+            Signature signature = Signature.getInstance("SHA256withRSA");
+            signature.initSign(privateKey);
+            signature.update(tablaBytes);
+            byte[] firma = signature.sign();
+
+            // Enviar la tabla y la firma
+            out.writeInt(tablaBytes.length);
+            out.write(tablaBytes);
+            out.writeInt(firma.length);
+            out.write(firma);
+
+            // Enviar IV, tabla cifrada y HMAC
             SecureRandom random = new SecureRandom();
             byte[] ivBytes = new byte[16];
             random.nextBytes(ivBytes);
             IvParameterSpec iv = new IvParameterSpec(ivBytes);
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            SecretKeySpec key = new SecretKeySpec(kAB1, "AES");
             cipher.init(Cipher.ENCRYPT_MODE, key, iv);
             byte[] encryptedTabla = cipher.doFinal(tablaBytes);
 
@@ -131,5 +148,13 @@ public class Servidor {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    private static PrivateKey cargarLlavePrivada(String path) throws Exception {
+        FileInputStream fis = new FileInputStream(path);
+        ObjectInputStream ois = new ObjectInputStream(fis);
+        PrivateKey privateKey = (PrivateKey) ois.readObject();
+        ois.close();
+        return privateKey;
     }
 }

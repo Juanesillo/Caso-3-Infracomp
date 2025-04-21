@@ -9,8 +9,12 @@ import java.util.*;
 public class Cliente {
     private static byte[] kAB1; // Clave para AES
     private static byte[] kAB2; // Clave para HMAC
+    private static PublicKey publicKey; // Llave pública RSA
 
     public static void main(String[] args) throws Exception {
+        // Cargar la llave pública
+        publicKey = cargarLlavePublica("Keys/PublicKey.txt");
+
         Socket socket = new Socket("localhost", 8080);
         DataOutputStream out = new DataOutputStream(socket.getOutputStream());
         DataInputStream in = new DataInputStream(socket.getInputStream());
@@ -55,7 +59,35 @@ public class Cliente {
         kAB1 = Arrays.copyOfRange(digest, 0, 32);
         kAB2 = Arrays.copyOfRange(digest, 32, 64);
 
-        // Recibir tabla de servicios
+        // Recibir tabla y firma
+        int tablaLen = in.readInt();
+        byte[] tablaBytes = new byte[tablaLen];
+        in.readFully(tablaBytes);
+        int firmaLen = in.readInt();
+        byte[] firma = new byte[firmaLen];
+        in.readFully(firma);
+
+        // Verificar firma
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initVerify(publicKey);
+        signature.update(tablaBytes);
+        boolean verificado = signature.verify(firma);
+
+        if (!verificado) {
+            System.out.println("Firma inválida. No se puede confiar en la tabla.");
+            socket.close();
+            return;
+        }
+
+        // Deserializar la tabla
+        ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(tablaBytes));
+        Map<Integer, String> tablaServicios = (Map<Integer, String>) ois.readObject();
+        System.out.println("Servicios disponibles:");
+        for (Map.Entry<Integer, String> entry : tablaServicios.entrySet()) {
+            System.out.println("ID: " + entry.getKey() + " -> " + entry.getValue());
+        }
+
+        // Recibir IV, tabla cifrada y HMAC
         byte[] ivBytes = new byte[16];
         in.readFully(ivBytes);
         int encryptedLen = in.readInt();
@@ -77,14 +109,7 @@ public class Cliente {
         Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
         SecretKeySpec key = new SecretKeySpec(kAB1, "AES");
         cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(ivBytes));
-        byte[] tablaBytes = cipher.doFinal(encryptedTabla);
-        ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(tablaBytes));
-        Map<Integer, String> tablaServicios = (Map<Integer, String>) ois.readObject();
-
-        System.out.println("Servicios disponibles:");
-        for (Map.Entry<Integer, String> entry : tablaServicios.entrySet()) {
-            System.out.println("ID: " + entry.getKey() + " -> " + entry.getValue());
-        }
+        byte[] decryptedTabla = cipher.doFinal(encryptedTabla);
 
         // Enviar solicitud
         Scanner scanner = new Scanner(System.in);
@@ -126,5 +151,13 @@ public class Cliente {
         System.out.println("Respuesta del servidor: " + response);
 
         socket.close();
+    }
+
+    private static PublicKey cargarLlavePublica(String path) throws Exception {
+        FileInputStream fis = new FileInputStream(path);
+        ObjectInputStream ois = new ObjectInputStream(fis);
+        PublicKey publicKey = (PublicKey) ois.readObject();
+        ois.close();
+        return publicKey;
     }
 }
