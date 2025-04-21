@@ -8,66 +8,45 @@ import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 
-public class KeyGenerator  {
+public class KeyGenerator {
+    private static final String ALGORITMO = "RSA";
 
-    
-    // Esta clase solo se encarga de generar las llaves 
-    // publica  y privada por adelantado 
+    public static void main(String[] args) {
+        try {
+            System.out.println("Iniciando Creación de llaves...");
+            Thread.sleep(1000);
 
+            KeyPairGenerator generator = KeyPairGenerator.getInstance(ALGORITMO);
+            generator.initialize(1024); // Tamaño explícito de 1024 bits
+            KeyPair keyPair = generator.generateKeyPair();
 
-    // Se define el algoritmo RSA empleado en el laboratorio
+            System.out.println("Llaves generadas de manera exitosa");
+            Thread.sleep(1000);
 
-    private final static String ALGORITMO= "RSA";
+            PublicKey publicKey = keyPair.getPublic();
+            PrivateKey privateKey = keyPair.getPrivate();
 
-    public static void main(String[] args) throws NoSuchAlgorithmException, IOException, InterruptedException {
+            File carpeta = new File("Keys");
+            if (!carpeta.exists()) {
+                carpeta.mkdirs();
+            }
 
-        // se crea un archivo ejecutable ya que es el primero en iniciar
+            System.out.println("Almacenando llaves en Archivos...");
+            // Llave Pública
+            try (FileOutputStream publicFile = new FileOutputStream("Keys/PublicKey.txt");
+                 ObjectOutputStream oos = new ObjectOutputStream(publicFile)) {
+                oos.writeObject(publicKey);
+            }
 
+            // Llave Privada
+            try (FileOutputStream privateFile = new FileOutputStream("Keys/PrivateKey.secret");
+                 ObjectOutputStream oos1 = new ObjectOutputStream(privateFile)) {
+                oos1.writeObject(privateKey);
+            }
 
-    System.out.println("Iniciando Creacion de llaves... \n");
-
-    Thread.sleep(1000);
-
-    KeyPairGenerator generator= KeyPairGenerator.getInstance(ALGORITMO);
-    
-    KeyPair keyPair= generator.generateKeyPair();
-
-
-    // Generar las llaves 
-
-    System.out.println(" Llaves generadas de manera exitosa ");
-    Thread.sleep(1000);
-    PublicKey publicKey= keyPair.getPublic();
-    PrivateKey privateKey= keyPair.getPrivate();
-
-    File carpeta = new File("Keys");
-        if (!carpeta.exists()) {
-             carpeta.mkdirs();
-            }   
-    // Almacenar las llaves en dos archivos 
-    System.out.println("Almacenando llaves en Archivos...");
-        // Llave Publica
-        FileOutputStream publicFile= new FileOutputStream("Keys/PublicKey.txt");
-        ObjectOutputStream oos= new ObjectOutputStream(publicFile);
-
-        oos.writeObject(publicKey);
-        oos.close();
-
-        // Llave Privada
-        FileOutputStream privateFile= new FileOutputStream("Keys/PrivateKey.secret");
-        ObjectOutputStream oos1= new ObjectOutputStream(privateFile);
-
-        oos1.writeObject(privateKey);
-        oos1.close();
-        
-    System.out.println("Almacenamiento exitoso");
-
-        
+            System.out.println("Almacenamiento exitoso");
+        } catch (NoSuchAlgorithmException | IOException | InterruptedException e) {
+            System.err.println("Error durante la generación o almacenamiento de llaves: " + e.getMessage());
+        }
     }
-
-
-
-    
-
-
 }

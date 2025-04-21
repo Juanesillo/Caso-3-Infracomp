@@ -1,9 +1,9 @@
 import javax.crypto.*;
 import javax.crypto.spec.*;
 import java.io.*;
+import java.math.BigInteger;
 import java.net.*;
 import java.security.*;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 
 public class Cliente {
@@ -15,15 +15,28 @@ public class Cliente {
         DataOutputStream out = new DataOutputStream(socket.getOutputStream());
         DataInputStream in = new DataInputStream(socket.getInputStream());
 
-        // Paso 1: Intercambio de claves Diffie-Hellman
+        // Recibir parámetros DH
+        int pLen = in.readInt();
+        byte[] pBytes = new byte[pLen];
+        in.readFully(pBytes);
+        int gLen = in.readInt();
+        byte[] gBytes = new byte[gLen];
+        in.readFully(gBytes);
+
+        BigInteger p = new BigInteger(pBytes);
+        BigInteger g = new BigInteger(gBytes);
+        DHParameterSpec dhSpec = new DHParameterSpec(p, g);
+
+        // Recibir clave pública del servidor
         int len = in.readInt();
         byte[] serverPublicKeyBytes = new byte[len];
         in.readFully(serverPublicKeyBytes);
         KeyFactory keyFactory = KeyFactory.getInstance("DH");
-        PublicKey serverPublicKeyDH = keyFactory.generatePublic(new X509EncodedKeySpec(serverPublicKeyBytes));
+        PublicKey serverPublicKeyDH = keyFactory.generatePublic(new java.security.spec.X509EncodedKeySpec(serverPublicKeyBytes));
 
+        // Generar y enviar clave pública DH
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("DH");
-        keyGen.initialize(1024);
+        keyGen.initialize(dhSpec);
         KeyPair keyPair = keyGen.generateKeyPair();
         PublicKey publicKeyDH = keyPair.getPublic();
         PrivateKey privateKeyDH = keyPair.getPrivate();
@@ -31,6 +44,7 @@ public class Cliente {
         out.writeInt(publicKeyDH.getEncoded().length);
         out.write(publicKeyDH.getEncoded());
 
+        // Calcular clave secreta compartida
         KeyAgreement keyAgree = KeyAgreement.getInstance("DH");
         keyAgree.init(privateKeyDH);
         keyAgree.doPhase(serverPublicKeyDH, true);
@@ -38,10 +52,10 @@ public class Cliente {
 
         MessageDigest sha512 = MessageDigest.getInstance("SHA-512");
         byte[] digest = sha512.digest(sharedSecret);
-        kAB1 = Arrays.copyOfRange(digest, 0, 32); // 256 bits para AES
-        kAB2 = Arrays.copyOfRange(digest, 32, 64); // 256 bits para HMAC
+        kAB1 = Arrays.copyOfRange(digest, 0, 32);
+        kAB2 = Arrays.copyOfRange(digest, 32, 64);
 
-        // Paso 2: Recibir tabla de servicios
+        // Recibir tabla de servicios
         byte[] ivBytes = new byte[16];
         in.readFully(ivBytes);
         int encryptedLen = in.readInt();
@@ -67,13 +81,12 @@ public class Cliente {
         ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(tablaBytes));
         Map<Integer, String> tablaServicios = (Map<Integer, String>) ois.readObject();
 
-        // Mostrar tabla al usuario
         System.out.println("Servicios disponibles:");
         for (Map.Entry<Integer, String> entry : tablaServicios.entrySet()) {
             System.out.println("ID: " + entry.getKey() + " -> " + entry.getValue());
         }
 
-        // Paso 3: Enviar solicitud
+        // Enviar solicitud
         Scanner scanner = new Scanner(System.in);
         System.out.print("Ingrese el ID del servicio: ");
         int serviceId = scanner.nextInt();
@@ -82,6 +95,8 @@ public class Cliente {
         dos.writeInt(serviceId);
         byte[] requestBytes = baos.toByteArray();
 
+        SecureRandom random = new SecureRandom();
+        random.nextBytes(ivBytes);
         cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(ivBytes));
         byte[] encryptedRequest = cipher.doFinal(requestBytes);
         byte[] hmacRequest = mac.doFinal(encryptedRequest);
@@ -91,7 +106,7 @@ public class Cliente {
         out.write(encryptedRequest);
         out.write(hmacRequest);
 
-        // Paso 4: Recibir respuesta
+        // Recibir respuesta
         in.readFully(ivBytes);
         encryptedLen = in.readInt();
         byte[] encryptedResponse = new byte[encryptedLen];
