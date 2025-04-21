@@ -37,6 +37,7 @@ public class Servidor {
                 // aceptar comunicaciones para un cliente => se menciona al cliente conectado 
                 Socket clientSocket = serverSocket.accept();
                 System.out.println("Cliente conectado: " + clientSocket.getInetAddress());
+                // () ->  cuando se ejecute el thread llamar al método 
                 new Thread(() -> manejarCliente(clientSocket)).start();
             }
         }catch(Exception e){
