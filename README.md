@@ -10,6 +10,6 @@
 
 ## Integrantes 
 
-Samuel Charry - Código 
+Samuel Charry - 202313509 
 
 Juan Triviño - 202315338
