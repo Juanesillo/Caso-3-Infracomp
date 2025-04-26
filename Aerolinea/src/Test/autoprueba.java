@@ -25,6 +25,27 @@ public class autoprueba {
     private static final String RESULTS_DIR = "results/";
 
     public static void main(String[] args) throws Exception {
+        // Configurar los valores de clientes concurrentes desde los argumentos
+        int[] cantidades;
+        if (args.length > 0) {
+            cantidades = new int[args.length];
+            for (int i = 0; i < args.length; i++) {
+                try {
+                    cantidades[i] = Integer.parseInt(args[i]);
+                    if (cantidades[i] <= 0) {
+                        System.err.println("Los valores deben ser mayores que 0. Usando valores por defecto.");
+                        cantidades = new int[]{4, 16, 32, 64};
+                        break;
+                    }
+                } catch (NumberFormatException e) {
+                    System.err.println("Argumento inválido: " + args[i] + ". Usando valores por defecto.");
+                    cantidades = new int[]{4, 16, 32, 64};
+                    break;
+                }
+            }
+        } else {
+            cantidades = new int[]{4, 16, 32, 64}; // Valores por defecto
+        }
 
         new File(RESULTS_DIR).mkdirs();
 
@@ -40,7 +61,7 @@ public class autoprueba {
         Thread.sleep(1000); 
 
         probarConsultasIterativas();
-        probarClientesConcurrentes();
+        probarClientesConcurrentes(cantidades); // Pasar los valores configurados
         compararCifrado();
         estimarVelocidadProcesador();
 
@@ -92,9 +113,7 @@ public class autoprueba {
         cliente.cerrar();
     }
 
-    private static void probarClientesConcurrentes() throws Exception {
-        int[] cantidades = {4, 16, 32, 64};
-        
+    private static void probarClientesConcurrentes(int[] cantidades) throws Exception {
         String csvFile = RESULTS_DIR + "concurrent_tests.csv";
         try (FileWriter writer = new FileWriter(csvFile)) {
             writer.write("Delegados,Firma_ms,Cifrado_ms,Verificacion_ms\n");
@@ -187,7 +206,6 @@ public class autoprueba {
                 tiempoTotalAsimetrico += tiempoAsimetrico;
                 System.out.println("Tiempo Cifrado Asimétrico (RSA): " + tiempoAsimetrico + " ms");
                 
-                // Write to CSV
                 writer.write(String.format("%d,%f,%f\n", i, tiempoSimetrico, tiempoAsimetrico));
             }
             
@@ -197,7 +215,6 @@ public class autoprueba {
             System.out.println("Tiempo promedio Cifrado Simétrico (AES): " + avgSimetrico + " ms");
             System.out.println("Tiempo promedio Cifrado Asimétrico (RSA): " + avgAsimetrico + " ms");
             
-            // Write averages to CSV
             writer.write(String.format("Average,%f,%f\n", avgSimetrico, avgAsimetrico));
         } catch (IOException e) {
             System.err.println("Error al escribir CSV para comparación de cifrado: " + e.getMessage());
