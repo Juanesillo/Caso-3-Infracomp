@@ -3,6 +3,7 @@ package Comunicacion;
 import AlgoritmosCripto.AES;
 import AlgoritmosCripto.DH;
 import AlgoritmosCripto.HMAC;
+import AlgoritmosCripto.RSA;
 import java.io.*;
 import java.math.BigInteger;
 import java.net.Socket;
@@ -28,6 +29,7 @@ public class ServidorDelegado implements Runnable {
         
         intercambioDH = new DH(primo, generador);
         realizarIntercambioClaves();
+        enviarTablaServicios(); // Enviar la tabla de servicios después del intercambio de claves
     }
 
     private void realizarIntercambioClaves() throws Exception {
@@ -42,6 +44,46 @@ public class ServidorDelegado implements Runnable {
         byte[][] clavesSesion = DH.generarClavesDeSesion(secretoCompartido);
         claveAES = clavesSesion[0];
         claveHMAC = clavesSesion[1];
+    }
+
+    private void enviarTablaServicios() throws Exception {
+        // Cargar la llave privada
+        PrivateKey privateKey = RSA.cargarLlavePrivada("Llaves/LlavePrivada.secret");
+        
+        // Serializar la tabla de servicios
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(baos);
+        oos.writeObject(servicios);
+        byte[] serviciosBytes = baos.toByteArray();
+        
+        // Firmar los datos
+        byte[] firma = RSA.firmar(serviciosBytes, privateKey);
+        
+        // Crear el mensaje: longitud de serviciosBytes + serviciosBytes + longitud de firma + firma
+        baos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(baos);
+        dos.writeInt(serviciosBytes.length);
+        dos.write(serviciosBytes);
+        dos.writeInt(firma.length);
+        dos.write(firma);
+        byte[] mensaje = baos.toByteArray();
+        
+        // Generar IV
+        byte[] iv = AES.generarIV();
+        
+        // Encriptar el mensaje
+        byte[] mensajeCifrado = AES.encriptar(mensaje, claveAES, iv);
+        
+        // Generar HMAC del mensaje cifrado
+        byte[] hmac = HMAC.generarHMAC(mensajeCifrado, claveHMAC);
+        
+        // Enviar IV, mensaje cifrado y HMAC
+        salida.writeInt(iv.length);
+        salida.write(iv);
+        salida.writeInt(mensajeCifrado.length);
+        salida.write(mensajeCifrado);
+        salida.writeInt(hmac.length);
+        salida.write(hmac);
     }
 
     @Override
@@ -72,6 +114,9 @@ public class ServidorDelegado implements Runnable {
                 System.out.println("Cliente " + socketCliente.getInetAddress() + " solicitó el servicio ID: " + idServicio);
                 
                 String direccionServicio = servicios.get(idServicio);
+                if (direccionServicio == null) {
+                    direccionServicio = "-1,-1";
+                }
                 System.out.println("Enviando respuesta al cliente " + socketCliente.getInetAddress() + ": " + direccionServicio);
                 
                 byte[] vectorInicialRespuesta = AES.generarIV();
