@@ -4,7 +4,9 @@ import AlgoritmosCripto.AES;
 import AlgoritmosCripto.RSA;
 import Comunicacion.Cliente;
 import Comunicacion.Servidor;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.math.BigInteger;
@@ -58,73 +60,64 @@ public class autoprueba {
             }
         });
         hiloServidor.start();
-        Thread.sleep(1000); 
+        Thread.sleep(1000);
 
         probarConsultasIterativas();
-        probarClientesConcurrentes(cantidades); // Pasar los valores configurados
+        probarClientesConcurrentes(cantidades);
         compararCifrado();
         estimarVelocidadProcesador();
 
         servidor.detener();
-        hiloServidor.join(); 
+        hiloServidor.join();
     }
 
     private static void probarConsultasIterativas() throws Exception {
         System.out.println("=== Pruebas Iterativas ===");
         Cliente cliente = new Cliente("localhost", PUERTO, PRIMO, GENERADOR);
-        
-        long tiempoTotalFirma = 0;
-        long tiempoTotalCifrado = 0;
-        long tiempoTotalVerificacion = 0;
-        
-        String csvFile = RESULTS_DIR + "iterative_tests.csv";
-        try (FileWriter writer = new FileWriter(csvFile)) {
-            writer.write("Iteration,Firma_ms,Cifrado_ms,Verificacion_ms\n");
-            
-            for (int i = 0; i < 32; i++) {
-                long inicio = System.nanoTime();
-                cliente.solicitarServicio(i % 2 == 0 ? 1 : 2);
-                long fin = System.nanoTime();
-                
-                long tiempoFirma = (fin - inicio) / 1_000_000;
-                long tiempoCifrado = (fin - inicio) / 1_000_000;
-                long tiempoVerificacion = (fin - inicio) / 1_000_000;
-                
-                tiempoTotalFirma += tiempoFirma;
-                tiempoTotalCifrado += tiempoCifrado;
-                tiempoTotalVerificacion += tiempoVerificacion;
-                
-                writer.write(String.format("%d,%d,%d,%d\n", (i + 1), tiempoFirma, tiempoCifrado, tiempoVerificacion));
-            }
-            
-            double avgFirma = tiempoTotalFirma / 32.0;
-            double avgCifrado = tiempoTotalCifrado / 32.0;
-            double avgVerificacion = tiempoTotalVerificacion / 32.0;
-            
-            System.out.println("Tiempo promedio Firma: " + avgFirma + " ms");
-            System.out.println("Tiempo promedio Cifrado: " + avgCifrado + " ms");
-            System.out.println("Tiempo promedio Verificación: " + avgVerificacion + " ms");
 
-            writer.write(String.format("Average,%f,%f,%f\n", avgFirma, avgCifrado, avgVerificacion));
+        // Limpiar archivos previos
+        new File(RESULTS_DIR + "firma_times.csv").delete();
+        new File(RESULTS_DIR + "cifrado_times.csv").delete();
+        new File(RESULTS_DIR + "verificacion_times.csv").delete();
+
+        for (int i = 0; i < 32; i++) {
+            cliente.solicitarServicio(i % 2 == 0 ? 1 : 2);
+        }
+        cliente.cerrar();
+
+        // Calcular promedios desde los archivos generados por el servidor
+        double avgFirma = calcularPromedio(RESULTS_DIR + "firma_times.csv");
+        double avgCifrado = calcularPromedio(RESULTS_DIR + "cifrado_times.csv");
+        double avgVerificacion = calcularPromedio(RESULTS_DIR + "verificacion_times.csv");
+
+        System.out.println("Tiempo promedio Firma: " + avgFirma + " ms");
+        System.out.println("Tiempo promedio Cifrado: " + avgCifrado + " ms");
+        System.out.println("Tiempo promedio Verificación: " + avgVerificacion + " ms");
+
+        // Guardar resultados en CSV
+        try (FileWriter writer = new FileWriter(RESULTS_DIR + "iterative_tests.csv")) {
+            writer.write("Prueba,Firma_ms,Cifrado_ms,Verificacion_ms\n");
+            writer.write(String.format("Iterativa,%f,%f,%f\n", avgFirma, avgCifrado, avgVerificacion));
         } catch (IOException e) {
             System.err.println("Error al escribir CSV para pruebas iterativas: " + e.getMessage());
         }
-        
-        cliente.cerrar();
     }
 
     private static void probarClientesConcurrentes(int[] cantidades) throws Exception {
-        String csvFile = RESULTS_DIR + "concurrent_tests.csv";
-        try (FileWriter writer = new FileWriter(csvFile)) {
+        try (FileWriter writer = new FileWriter(RESULTS_DIR + "concurrent_tests.csv")) {
             writer.write("Delegados,Firma_ms,Cifrado_ms,Verificacion_ms\n");
-            
+
             for (int cantidad : cantidades) {
                 System.out.println("=== Pruebas Concurrentes: " + cantidad + " delegados ===");
-                
+
+                // Limpiar archivos previos
+                new File(RESULTS_DIR + "firma_times.csv").delete();
+                new File(RESULTS_DIR + "cifrado_times.csv").delete();
+                new File(RESULTS_DIR + "verificacion_times.csv").delete();
+
                 ExecutorService grupoHilos = Executors.newFixedThreadPool(cantidad);
                 List<Future<?>> tareas = new ArrayList<>();
-                
-                long inicio = System.nanoTime();
+
                 for (int i = 0; i < cantidad; i++) {
                     final int id = i % 2 == 0 ? 1 : 2;
                     tareas.add(grupoHilos.submit(() -> {
@@ -136,10 +129,9 @@ public class autoprueba {
                             System.err.println("Error en cliente concurrente: " + e.getMessage());
                         }
                     }));
-                    
                     Thread.sleep(50);
                 }
-                
+
                 for (Future<?> tarea : tareas) {
                     try {
                         tarea.get(20, TimeUnit.SECONDS);
@@ -147,27 +139,39 @@ public class autoprueba {
                         System.err.println("Error esperando tarea: " + e.getMessage());
                     }
                 }
-                long fin = System.nanoTime();
-                
-                double avgFirma = (fin - inicio) / 1_000_000.0 / cantidad;
-                double avgCifrado = (fin - inicio) / 1_000_000.0 / cantidad;
-                double avgVerificacion = (fin - inicio) / 1_000_000.0 / cantidad;
-                
+
+                grupoHilos.shutdown();
+                grupoHilos.awaitTermination(20, TimeUnit.SECONDS);
+
+                // Calcular promedios desde los archivos generados por el servidor
+                double avgFirma = calcularPromedio(RESULTS_DIR + "firma_times.csv");
+                double avgCifrado = calcularPromedio(RESULTS_DIR + "cifrado_times.csv");
+                double avgVerificacion = calcularPromedio(RESULTS_DIR + "verificacion_times.csv");
+
                 System.out.println("Tiempo promedio Firma: " + avgFirma + " ms");
                 System.out.println("Tiempo promedio Cifrado: " + avgCifrado + " ms");
                 System.out.println("Tiempo promedio Verificación: " + avgVerificacion + " ms");
-           
+
                 writer.write(String.format("%d,%f,%f,%f\n", cantidad, avgFirma, avgCifrado, avgVerificacion));
-                
-                grupoHilos.shutdown();
-                try {
-                    grupoHilos.awaitTermination(20, TimeUnit.SECONDS); 
-                } catch (InterruptedException e) {
-                    System.err.println("Error al cerrar grupo de hilos: " + e.getMessage());
-                }
             }
         } catch (IOException e) {
             System.err.println("Error al escribir CSV para pruebas concurrentes: " + e.getMessage());
+        }
+    }
+
+    private static double calcularPromedio(String archivo) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(archivo))) {
+            double suma = 0;
+            int count = 0;
+            String linea;
+            while ((linea = reader.readLine()) != null) {
+                suma += Double.parseDouble(linea);
+                count++;
+            }
+            return count > 0 ? suma / count : 0;
+        } catch (IOException e) {
+            System.err.println("Error al leer " + archivo + ": " + e.getMessage());
+            return 0;
         }
     }
 
@@ -176,45 +180,44 @@ public class autoprueba {
         byte[] datos = "Mensaje de prueba".getBytes();
         byte[] claveAES = new byte[32];
         byte[] vectorInicial = AES.generarIV();
-        
-        PublicKey llavePublica = RSA.cargarLlavePublica("Keys/PublicKey.txt");
-        PrivateKey llavePrivada = RSA.cargarLlavePrivada("Keys/PrivateKey.secret");
-        
+
+        PublicKey llavePublica = RSA.cargarLlavePublica("Llaves/LlavePublica.txt");
+        PrivateKey llavePrivada = RSA.cargarLlavePrivada("Llaves/LlavePrivada.secret");
+
         double tiempoTotalSimetrico = 0;
         double tiempoTotalAsimetrico = 0;
-      
-        String csvFile = RESULTS_DIR + "encryption_comparison.csv";
-        try (FileWriter writer = new FileWriter(csvFile)) {
+
+        try (FileWriter writer = new FileWriter(RESULTS_DIR + "encryption_comparison.csv")) {
             writer.write("Repeticion,Simetrico_ms,Asimetrico_ms\n");
-            
+
             for (int i = 1; i <= 5; i++) {
                 System.out.println("Repetición " + i + ":");
-                
+
                 long inicioSimetrico = System.nanoTime();
                 AES.encriptar(datos, claveAES, vectorInicial);
                 long finSimetrico = System.nanoTime();
                 double tiempoSimetrico = (finSimetrico - inicioSimetrico) / 1_000_000.0;
                 tiempoTotalSimetrico += tiempoSimetrico;
                 System.out.println("Tiempo Cifrado Simétrico (AES): " + tiempoSimetrico + " ms");
-                
+
                 long inicioAsimetrico = System.nanoTime();
                 Cipher cifradorRSA = Cipher.getInstance("RSA");
                 cifradorRSA.init(Cipher.ENCRYPT_MODE, llavePublica);
-                byte[] datosCifradosRSA = cifradorRSA.doFinal(datos);
+                cifradorRSA.doFinal(datos);
                 long finAsimetrico = System.nanoTime();
                 double tiempoAsimetrico = (finAsimetrico - inicioAsimetrico) / 1_000_000.0;
                 tiempoTotalAsimetrico += tiempoAsimetrico;
                 System.out.println("Tiempo Cifrado Asimétrico (RSA): " + tiempoAsimetrico + " ms");
-                
+
                 writer.write(String.format("%d,%f,%f\n", i, tiempoSimetrico, tiempoAsimetrico));
             }
-            
+
             double avgSimetrico = tiempoTotalSimetrico / 5.0;
             double avgAsimetrico = tiempoTotalAsimetrico / 5.0;
-            
+
             System.out.println("Tiempo promedio Cifrado Simétrico (AES): " + avgSimetrico + " ms");
             System.out.println("Tiempo promedio Cifrado Asimétrico (RSA): " + avgAsimetrico + " ms");
-            
+
             writer.write(String.format("Average,%f,%f\n", avgSimetrico, avgAsimetrico));
         } catch (IOException e) {
             System.err.println("Error al escribir CSV para comparación de cifrado: " + e.getMessage());
@@ -226,20 +229,19 @@ public class autoprueba {
         byte[] datos = "Mensaje de prueba".getBytes();
         byte[] claveAES = new byte[32];
         byte[] vectorInicial = AES.generarIV();
-        
-        PublicKey llavePublica = RSA.cargarLlavePublica("Keys/PublicKey.txt");
-        PrivateKey llavePrivada = RSA.cargarLlavePrivada("Keys/PrivateKey.secret");
-        
+
+        PublicKey llavePublica = RSA.cargarLlavePublica("Llaves/LlavePublica.txt");
+        PrivateKey llavePrivada = RSA.cargarLlavePrivada("Llaves/LlavePrivada.secret");
+
         double opsTotalSimetrico = 0;
         double opsTotalAsimetrico = 0;
-        
-        String csvFile = RESULTS_DIR + "processor_speed.csv";
-        try (FileWriter writer = new FileWriter(csvFile)) {
+
+        try (FileWriter writer = new FileWriter(RESULTS_DIR + "processor_speed.csv")) {
             writer.write("Repeticion,Simetrico_ops_s,Asimetrico_ops_s\n");
-            
+
             for (int i = 1; i <= 5; i++) {
                 System.out.println("Repetición " + i + ":");
-                
+
                 long inicioSimetrico = System.nanoTime();
                 for (int j = 0; j < 1000; j++) {
                     AES.encriptar(datos, claveAES, vectorInicial);
@@ -249,7 +251,7 @@ public class autoprueba {
                 double opsSimetrico = 1000 / tiempoSimetrico;
                 opsTotalSimetrico += opsSimetrico;
                 System.out.println("Operaciones por segundo (Cifrado Simétrico): " + opsSimetrico + " ops/s");
-                
+
                 long inicioAsimetrico = System.nanoTime();
                 Cipher cifradorRSA = Cipher.getInstance("RSA");
                 cifradorRSA.init(Cipher.ENCRYPT_MODE, llavePublica);
@@ -261,16 +263,16 @@ public class autoprueba {
                 double opsAsimetrico = 1000 / tiempoAsimetrico;
                 opsTotalAsimetrico += opsAsimetrico;
                 System.out.println("Operaciones por segundo (Cifrado Asimétrico): " + opsAsimetrico + " ops/s");
-                
+
                 writer.write(String.format("%d,%f,%f\n", i, opsSimetrico, opsAsimetrico));
             }
-            
+
             double avgOpsSimetrico = opsTotalSimetrico / 5.0;
             double avgOpsAsimetrico = opsTotalAsimetrico / 5.0;
-            
+
             System.out.println("Promedio Operaciones por segundo (Cifrado Simétrico): " + avgOpsSimetrico + " ops/s");
             System.out.println("Promedio Operaciones por segundo (Cifrado Asimétrico): " + avgOpsAsimetrico + " ops/s");
-            
+
             writer.write(String.format("Average,%f,%f\n", avgOpsSimetrico, avgOpsAsimetrico));
         } catch (IOException e) {
             System.err.println("Error al escribir CSV para estimación de velocidad: " + e.getMessage());
