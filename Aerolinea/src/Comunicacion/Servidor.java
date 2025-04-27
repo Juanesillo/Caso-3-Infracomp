@@ -1,7 +1,10 @@
 package Comunicacion;
 
+import AlgoritmosCripto.RSA;
 import java.math.BigInteger;
 import java.net.*;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -16,8 +19,10 @@ public class Servidor {
     private BigInteger generador;
     private ExecutorService grupoHilos;
     private volatile boolean corriendo;
+    private PrivateKey privateKey; // Llave privada del servidor
+    private PublicKey publicKey;   // Llave pública del servidor
 
-    public Servidor(int puerto, BigInteger primo, BigInteger generador) {
+    public Servidor(int puerto, BigInteger primo, BigInteger generador) throws Exception {
         this.puerto = puerto;
         this.primo = primo;
         this.generador = generador;
@@ -26,17 +31,23 @@ public class Servidor {
         servicios.put(2, "192.168.1.2:9002");
         System.out.println("Servicios disponibles:");
         servicios.forEach((id, direccion) -> System.out.println("ID: " + id + " -> " + direccion));
-        grupoHilos = Executors.newFixedThreadPool(100); 
+        grupoHilos = Executors.newFixedThreadPool(100);
         corriendo = true;
+
+        // Cargar las llaves RSA
+        privateKey = RSA.cargarLlavePrivada("Llaves/LlavePrivada.secret");
+        publicKey = RSA.cargarLlavePublica("Llaves/LlavePublica.txt");
+        System.out.println("Llaves RSA cargadas exitosamente.");
     }
 
     public void iniciar() throws Exception {
-        socketServidor = new ServerSocket(puerto, 100); 
+        socketServidor = new ServerSocket(puerto, 100);
         try {
             while (corriendo) {
                 Socket socketCliente = socketServidor.accept();
                 System.out.println("Cliente conectado: " + socketCliente.getInetAddress());
-                grupoHilos.submit(new ServidorDelegado(socketCliente, servicios, primo, generador));
+                // Pasar las llaves al ServidorDelegado
+                grupoHilos.submit(new ServidorDelegado(socketCliente, servicios, primo, generador, privateKey, publicKey));
             }
         } catch (SocketException e) {
             if (!corriendo) {
@@ -56,7 +67,7 @@ public class Servidor {
         }
         grupoHilos.shutdown();
         try {
-            grupoHilos.awaitTermination(20, TimeUnit.SECONDS); 
+            grupoHilos.awaitTermination(20, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             System.err.println("Error al cerrar grupo de hilos: " + e.getMessage());
         }

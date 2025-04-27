@@ -13,11 +13,11 @@ import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.Random;
 
 public class Cliente {
     private Socket socketCliente;
@@ -27,11 +27,15 @@ public class Cliente {
     private byte[] claveHMAC;
     private DH intercambioDH;
     private Map<Integer, String> servicios;
+    private PublicKey publicKey; // Llave pública del servidor
 
     public Cliente(String direccion, int puerto, BigInteger primo, BigInteger generador) throws Exception {
         socketCliente = new Socket(direccion, puerto);
         salida = new DataOutputStream(socketCliente.getOutputStream());
         entrada = new DataInputStream(socketCliente.getInputStream());
+        
+        // Cargar la llave pública
+        publicKey = RSA.cargarLlavePublica("Llaves/LlavePublica.txt");
         
         intercambioDH = new DH(primo, generador);
         realizarIntercambioClaves();
@@ -53,9 +57,6 @@ public class Cliente {
     }
 
     private Map<Integer, String> recibirTablaServicios() throws Exception {
-        // Cargar la llave pública
-        PublicKey publicKey = RSA.cargarLlavePublica("Llaves/LlavePublica.txt");
-        
         // Recibir IV
         byte[] iv = new byte[entrada.readInt()];
         entrada.readFully(iv);
@@ -71,7 +72,7 @@ public class Cliente {
         // Verificar HMAC
         boolean hmacValido = HMAC.verificarHMAC(mensajeCifrado, hmacRecibido, claveHMAC);
         if (!hmacValido) {
-            throw new Exception("HMAC inválido en la tabla de servicios");
+            throw new Exception("Error en la consulta: HMAC inválido en la tabla de servicios");
         }
         
         // Desencriptar el mensaje
@@ -90,13 +91,19 @@ public class Cliente {
         // Verificar la firma
         boolean firmaValida = RSA.verificar(serviciosBytes, firma, publicKey);
         if (!firmaValida) {
-            throw new Exception("Firma inválida en la tabla de servicios");
+            throw new Exception("Error en la consulta: Firma inválida en la tabla de servicios");
         }
         
         // Deserializar la tabla de servicios
         bais = new ByteArrayInputStream(serviciosBytes);
         ObjectInputStream ois = new ObjectInputStream(bais);
         Map<Integer, String> servicios = (Map<Integer, String>) ois.readObject();
+        
+        // Mostrar los servicios al usuario
+        System.out.println("Servicios disponibles:");
+        for (Map.Entry<Integer, String> entry : servicios.entrySet()) {
+            System.out.println("ID: " + entry.getKey() + " -> " + entry.getValue());
+        }
         
         return servicios;
     }
@@ -129,7 +136,7 @@ public class Cliente {
         
         boolean hmacValido = HMAC.verificarHMAC(datosCifradosRespuesta, hmacRespuesta, claveHMAC);
         if (!hmacValido) {
-            throw new Exception("HMAC inválido en la respuesta del servidor");
+            throw new Exception("Error en la consulta: HMAC inválido en la respuesta del servidor");
         }
         
         byte[] datosDescifrados = AES.desencriptar(datosCifradosRespuesta, claveAES, vectorInicialRespuesta);
@@ -148,7 +155,7 @@ public class Cliente {
         BigInteger generador = new BigInteger("2");
 
         Scanner scanner = new Scanner(System.in);
-        System.out.print("¿Cuántos clientes concurrentes desea ejecutar? (0 para modo iterativo): ");
+        System.out.print("¿Cuántos clientes concurrentes desea ejecutar? (0 para modo interactivo): ");
         int numeroClientes = scanner.nextInt();
 
         if (numeroClientes < 0) {
@@ -158,21 +165,24 @@ public class Cliente {
         }
 
         if (numeroClientes == 0) {
-            // Modo iterativo: un cliente hace 32 consultas secuenciales
+            // Modo interactivo: un cliente permite al usuario seleccionar un servicio
             Cliente cliente = new Cliente("localhost", puerto, primo, generador);
-            Random random = new Random();
-            List<Integer> ids = new ArrayList<>(cliente.servicios.keySet());
-            for (int i = 0; i < 32; i++) {
-                int idServicio = ids.get(random.nextInt(ids.size()));
+            System.out.print("Ingrese el ID del servicio: ");
+            int idServicio = scanner.nextInt();
+            try {
                 String respuesta = cliente.solicitarServicio(idServicio);
                 System.out.println("Respuesta para servicio " + idServicio + ": " + respuesta);
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
+            } finally {
+                cliente.cerrar();
             }
-            cliente.cerrar();
         } else {
-            // Modo concurrente: múltiples clientes, cada uno hace una consulta
+            // Modo concurrente: múltiples clientes, cada uno selecciona un servicio aleatoriamente
             ExecutorService grupoHilos = Executors.newFixedThreadPool(numeroClientes);
             List<Future<?>> tareas = new ArrayList<>();
 
+            System.out.println("Iniciando " + numeroClientes + " clientes concurrentes...");
             for (int i = 0; i < numeroClientes; i++) {
                 tareas.add(grupoHilos.submit(() -> {
                     try {

@@ -20,10 +20,14 @@ public class ServidorDelegado implements Runnable {
     private byte[] claveAES;
     private byte[] claveHMAC;
     private DH intercambioDH;
+    private PrivateKey privateKey; // Llave privada del servidor
+    private PublicKey publicKey;   // Llave pública del servidor
 
-    public ServidorDelegado(Socket socket, Map<Integer, String> servicios, BigInteger primo, BigInteger generador) throws Exception {
+    public ServidorDelegado(Socket socket, Map<Integer, String> servicios, BigInteger primo, BigInteger generador, PrivateKey privateKey, PublicKey publicKey) throws Exception {
         this.socketCliente = socket;
         this.servicios = servicios;
+        this.privateKey = privateKey;
+        this.publicKey = publicKey;
         entrada = new DataInputStream(socketCliente.getInputStream());
         salida = new DataOutputStream(socketCliente.getOutputStream());
         
@@ -47,9 +51,6 @@ public class ServidorDelegado implements Runnable {
     }
 
     private void enviarTablaServicios() throws Exception {
-        // Cargar la llave privada
-        PrivateKey privateKey = RSA.cargarLlavePrivada("Llaves/LlavePrivada.secret");
-        
         // Serializar la tabla de servicios
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ObjectOutputStream oos = new ObjectOutputStream(baos);
@@ -84,6 +85,8 @@ public class ServidorDelegado implements Runnable {
         salida.write(mensajeCifrado);
         salida.writeInt(hmac.length);
         salida.write(hmac);
+        
+        System.out.println("Tabla de servicios enviada al cliente " + socketCliente.getInetAddress());
     }
 
     @Override
@@ -115,7 +118,7 @@ public class ServidorDelegado implements Runnable {
                 
                 String direccionServicio = servicios.get(idServicio);
                 if (direccionServicio == null) {
-                    direccionServicio = "-1,-1";
+                    direccionServicio = "-1,-1"; // Respuesta para ID inválido
                 }
                 System.out.println("Enviando respuesta al cliente " + socketCliente.getInetAddress() + ": " + direccionServicio);
                 
